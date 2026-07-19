@@ -13,27 +13,31 @@ local function snacks()
   return mod
 end
 
---- Build picker items. `text` carries everything searchable so Snacks' own
---- matcher covers path, description and labels in one pass.
+--- Build picker items for the current prompt.
+---
+--- The source runs `live`, so the whole prompt arrives here as
+--- `ctx.filter.search` and Snacks' own matcher sits idle with an empty pattern.
+--- That is what lets `label:core` mean what `search.lua` says it means instead
+--- of being fuzzy-matched as literal text — and it means the ranking below is
+--- the display order, since an empty matcher pattern preserves finder order.
+---@param _opts table|nil
+---@param ctx table|nil
 ---@return table[]
-local function finder()
+local function finder(_opts, ctx)
   local fsbookmark = require("fsbookmark")
+  local query = ctx and ctx.filter and ctx.filter.search or ""
   local items = {}
 
-  for index, bookmark in ipairs(fsbookmark.list()) do
-    local broken = fsbookmark.is_broken(bookmark)
-    local labels = table.concat(bookmark.labels or {}, " ")
+  for index, bookmark in ipairs(fsbookmark.search(query)) do
     table.insert(items, {
       idx = index,
-      text = table.concat({
-        util.display_path(bookmark.path),
-        bookmark.description or "",
-        labels,
-      }, " "),
+      -- Required to be a non-nil string; filtering already happened above, so
+      -- this only feeds the formatter and tie-break sorting.
+      text = util.display_path(bookmark.path),
       file = bookmark.path,
       dir = bookmark.type == "directory",
       bookmark = bookmark,
-      broken = broken,
+      broken = fsbookmark.is_broken(bookmark),
     })
   end
 
@@ -98,6 +102,16 @@ function M.source()
       fsbookmark.load()
       picker:find()
     end,
+    fsbookmark_reveal = function(picker, item)
+      if not item then
+        return
+      end
+      picker:close()
+      local bookmark = item.bookmark
+      -- Reveal the file's parent; a bookmarked directory reveals itself.
+      local dir = bookmark.type == "directory" and bookmark.path or vim.fs.dirname(bookmark.path)
+      require("fsbookmark.explorer").open_directory(dir)
+    end,
     fsbookmark_yank = function(_, item)
       if not item then
         return
@@ -114,6 +128,7 @@ function M.source()
     delete = "fsbookmark_delete",
     reload = "fsbookmark_reload",
     yank = "fsbookmark_yank",
+    reveal = "fsbookmark_reveal",
   }
   for name, action in pairs(map) do
     local key = keys[name]
@@ -124,6 +139,13 @@ function M.source()
 
   return {
     title = "Bookmarks",
+    -- `live` hands the raw prompt to the finder and keeps the built-in matcher
+    -- out of the way; see the comment on `finder`.
+    live = true,
+    supports_live = true,
+    -- Live sources must stay open on zero results, or a half-typed
+    -- `label:c` would close the picker.
+    show_empty = true,
     finder = finder,
     format = format,
     actions = actions,

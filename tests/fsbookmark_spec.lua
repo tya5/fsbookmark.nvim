@@ -209,6 +209,53 @@ describe("search", function()
   end)
 end)
 
+describe("picker source", function()
+  local function find(query)
+    -- Mirrors how Snacks invokes a `live` finder.
+    local source = require("fsbookmark.picker").source()
+    return source.finder({}, { filter = { search = query } })
+  end
+
+  before_each(function()
+    reset()
+    fsbookmark.add(file_a, { description = "Runtime scheduler", labels = { "core", "hot" } })
+    fsbookmark.add(file_b, { description = "Design notes", labels = { "design" } })
+  end)
+
+  it("runs live so the finder owns the prompt", function()
+    local source = require("fsbookmark.picker").source()
+    assert.is_true(source.live)
+    assert.is_true(source.show_empty)
+  end)
+
+  it("routes the prompt through fsbookmark.search", function()
+    assert.equals(2, #find(""))
+    local found = find("Design")
+    assert.equals(1, #found)
+    assert.equals(file_b, found[1].bookmark.path)
+  end)
+
+  it("honours label: filters typed into the picker", function()
+    local found = find("label:core")
+    assert.equals(1, #found)
+    assert.equals(file_a, found[1].bookmark.path)
+    assert.equals(0, #find("label:nope"))
+  end)
+
+  it("gives every item a non-nil text field", function()
+    for _, item in ipairs(find("")) do
+      assert.is_string(item.text)
+      assert.is_true(#item.text > 0)
+    end
+  end)
+
+  it("returns items in ranked order", function()
+    -- The matcher is inert under `live`, so finder order is display order.
+    local found = find("design")
+    assert.equals(file_b, found[1].bookmark.path)
+  end)
+end)
+
 describe("events", function()
   before_each(reset)
 

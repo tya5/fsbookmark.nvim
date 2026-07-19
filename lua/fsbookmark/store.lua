@@ -7,6 +7,8 @@ local util = require("fsbookmark.util")
 ---@field type "file"|"directory"
 ---@field description string
 ---@field labels string[]
+---@field scope "global"|"workspace" reserved; only "global" is produced today
+---@field metadata table free-form extension point for other plugins
 ---@field created_at integer
 ---@field updated_at integer
 
@@ -45,6 +47,8 @@ local function sanitize(raw)
     type = raw.type == "directory" and "directory" or "file",
     description = type(raw.description) == "string" and raw.description or "",
     labels = vim.islist(raw.labels) and raw.labels or {},
+    scope = raw.scope == "workspace" and "workspace" or "global",
+    metadata = type(raw.metadata) == "table" and raw.metadata or {},
     created_at = tonumber(raw.created_at) or now,
     updated_at = tonumber(raw.updated_at) or now,
   }

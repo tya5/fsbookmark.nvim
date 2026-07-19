@@ -26,6 +26,8 @@ local defaults = {
       delete = "<c-d>",
       reload = "<c-r>",
       yank = "<c-y>",
+      -- `<c-s>`/`<c-v>`/`<c-t>` are Snacks' split/vsplit/tab actions.
+      reveal = "<c-b>",
     },
   },
 

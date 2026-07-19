@@ -36,6 +36,10 @@ function M.add(path, fields)
     type = util.type_of(path),
     description = (fields or {}).description or "",
     labels = (fields or {}).labels or {},
+    -- Reserved for the planned per-workspace split. Written from day one so
+    -- that adding workspace bookmarks later needs no migration.
+    scope = (fields or {}).scope or "global",
+    metadata = (fields or {}).metadata or {},
     created_at = now,
     updated_at = now,
   }
@@ -125,6 +129,12 @@ function M.update(path, data)
   end
   if data.labels ~= nil then
     bookmark.labels = data.labels
+  end
+  if data.scope ~= nil then
+    bookmark.scope = data.scope
+  end
+  if data.metadata ~= nil then
+    bookmark.metadata = vim.tbl_extend("force", bookmark.metadata or {}, data.metadata)
   end
   bookmark.updated_at = os.time()
 

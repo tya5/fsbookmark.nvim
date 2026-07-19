@@ -95,6 +95,11 @@ toggles the bookmark for the path under the cursor.
     <C-d>    Delete (respects multi-selection)
     <C-r>    Reload from disk
     <C-y>    Copy path
+    <C-b>    Reveal in explorer
+
+The picker is a `live` snacks source: the prompt goes to this plugin's parser
+(see |fsbookmark-search|), not to the built-in matcher, so `label:` filters
+behave identically in the picker and in |fsbookmark.search()|.
 
 To expose it as `Snacks.picker.fsbookmark()`, register the source: >lua
     sources = {
@@ -150,9 +155,17 @@ A bookmark is: >lua
       type = "file"|"directory",
       description = "",
       labels = { "core" },
+      scope = "global",
+      metadata = {},
       created_at = 0,
       updated_at = 0,
     }
+<
+`scope` is reserved for the planned per-workspace split and is always
+"global" today. `metadata` is a free-form table for other plugins and for
+fields added later; `description` and `labels` stay top level so the public
+shape does not break.
+>lua
 <
 ==============================================================================
 8. EVENTS                                                  *fsbookmark-events*

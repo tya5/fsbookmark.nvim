@@ -103,8 +103,13 @@ Also `:FSBookmark {add,remove,toggle,edit,list,prune,save,load} [path]`.
 | `<C-d>`  | Delete        |
 | `<C-r>`  | Reload        |
 | `<C-y>`  | Copy path     |
+| `<C-b>`  | Reveal in explorer |
 
 `<C-d>` respects multi-selection.
+
+The picker runs as a `live` Snacks source, so the prompt is handed to this
+plugin's own parser rather than to the built-in matcher — `label:core` typed
+into the picker means the same thing as it does in `search()`.
 
 ### Search
 
@@ -167,6 +172,8 @@ same path hits the same bookmark.
   type = "file" | "directory",
   description = "",
   labels = { "core", "runtime" },
+  scope = "global",   -- reserved for per-workspace bookmarks
+  metadata = {},      -- free-form; for other plugins and future fields
   created_at = 1721000000,
   updated_at = 1721000000,
 }
