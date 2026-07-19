@@ -46,7 +46,7 @@ local function check_snacks()
   end
   if not Snacks.picker then
     health.warn("snacks.nvim is installed but the picker is disabled", {
-      'Enable it with `opts = { picker = { enabled = true } }`.',
+      "Enable it with `opts = { picker = { enabled = true } }`.",
     })
     return
   end
