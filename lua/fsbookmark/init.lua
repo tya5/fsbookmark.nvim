@@ -39,6 +39,9 @@ function M.add(path, fields)
     -- Reserved for the planned per-workspace split. Written from day one so
     -- that adding workspace bookmarks later needs no migration.
     scope = (fields or {}).scope or "global",
+    -- Likewise reserved: a future git/lsp/recent provider tags its entries
+    -- here, so nothing about the stored shape has to change to grow one.
+    source = (fields or {}).source or "manual",
     metadata = (fields or {}).metadata or {},
     created_at = now,
     updated_at = now,
@@ -132,6 +135,9 @@ function M.update(path, data)
   end
   if data.scope ~= nil then
     bookmark.scope = data.scope
+  end
+  if data.source ~= nil then
+    bookmark.source = data.source
   end
   if data.metadata ~= nil then
     bookmark.metadata = vim.tbl_extend("force", bookmark.metadata or {}, data.metadata)

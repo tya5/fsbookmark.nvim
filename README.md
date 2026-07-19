@@ -173,6 +173,7 @@ same path hits the same bookmark.
   description = "",
   labels = { "core", "runtime" },
   scope = "global",   -- reserved for per-workspace bookmarks
+  source = "manual",  -- reserved for git/lsp/recent providers
   metadata = {},      -- free-form; for other plugins and future fields
   created_at = 1721000000,
   updated_at = 1721000000,

@@ -156,15 +156,21 @@ A bookmark is: >lua
       description = "",
       labels = { "core" },
       scope = "global",
+      source = "manual",
       metadata = {},
       created_at = 0,
       updated_at = 0,
     }
 <
-`scope` is reserved for the planned per-workspace split and is always
-"global" today. `metadata` is a free-form table for other plugins and for
-fields added later; `description` and `labels` stay top level so the public
-shape does not break.
+`scope` and `source` are reserved: the first for the planned per-workspace
+split, the second for future git/lsp/recent providers. Both are written from
+the start so that growing into them needs no migration, and both are always
+"global"/"manual" today. `metadata` is a free-form table for other plugins and
+for fields added later; `description` and `labels` stay top level so the
+public shape does not break.
+
+Older files missing any of these fields load fine — the defaults are applied
+on read.
 >lua
 <
 ==============================================================================

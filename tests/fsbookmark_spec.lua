@@ -83,6 +83,29 @@ describe("api", function()
     assert.same({ "core", "runtime" }, fsbookmark.labels())
   end)
 
+  it("stamps the reserved scope and source fields", function()
+    local bookmark = fsbookmark.add(file_a)
+    assert.equals("global", bookmark.scope)
+    assert.equals("manual", bookmark.source)
+    assert.same({}, bookmark.metadata)
+  end)
+
+  it("defaults scope and source when reading an older file", function()
+    -- A file written before these fields existed.
+    vim.fn.writefile({
+      vim.json.encode({
+        version = 1,
+        bookmarks = { { path = file_a, description = "old", labels = {} } },
+      }),
+    }, config.file())
+
+    fsbookmark.load()
+    local bookmark = fsbookmark.get(file_a)
+    assert.equals("global", bookmark.scope)
+    assert.equals("manual", bookmark.source)
+    assert.equals("old", bookmark.description)
+  end)
+
   it("flags missing paths as broken", function()
     local bookmark = fsbookmark.add(file_a)
     assert.is_false(fsbookmark.is_broken(bookmark))
