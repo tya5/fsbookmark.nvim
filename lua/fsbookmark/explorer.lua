@@ -19,15 +19,11 @@ function M.providers.snacks()
     return nil
   end
 
-  -- When invoked from the list window, trust the window's cursor rather than
-  -- the picker's tracked one: they can disagree.
-  local item
-  local list = picker.list
-  if list and list.win and list.win.win == vim.api.nvim_get_current_win() then
-    item = list:get(vim.api.nvim_win_get_cursor(list.win.win)[1])
-  end
-  item = item or picker:current()
-
+  -- `picker:current()` is the authority. A window cursor row is NOT an item
+  -- index — Snacks renders a scrolled window over the item list and converts
+  -- with `row2idx(row - topline + 1)` — so reading the row directly picks the
+  -- wrong entry as soon as the tree is scrolled.
+  local item = picker:current()
   return item and (item.file or item._path) or nil
 end
 
@@ -105,14 +101,7 @@ function M.refresh()
       -- cursor to the top unless the current position is pinned first, which
       -- is what Snacks' own explorer actions do around their refreshes.
       pcall(function()
-        local list = picker.list
-        -- Pin the window's cursor, not the picker's tracked one, for the same
-        -- reason `current_path` reads it: the two can disagree.
-        local row
-        if list.win and list.win:valid() and list.win.win == vim.api.nvim_get_current_win() then
-          row = vim.api.nvim_win_get_cursor(list.win.win)[1]
-        end
-        list:set_target(row)
+        picker.list:set_target()
         picker:find()
       end)
     end
