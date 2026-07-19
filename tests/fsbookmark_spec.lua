@@ -22,11 +22,22 @@ local function reset()
   tmpdir, file_a, file_b, dir_a = normalize(tmpdir), normalize(file_a), normalize(file_b), normalize(dir_a)
 
   fsbookmark.setup({
-    file = tmpdir .. "/bookmarks.json",
+    dir = tmpdir .. "/bookmarks",
+    -- Most specs exercise the single-file behaviour; the workspace block below
+    -- re-runs setup with it on.
+    workspace = { enabled = false },
     watch = false,
     explorer = { enabled = false },
     keys = { enabled = false },
   })
+end
+
+--- Path of the global collection on disk, with its directory created so specs
+--- can write a fixture there before anything has been saved.
+local function global_file()
+  local path = store.file("global")
+  vim.fn.mkdir(vim.fs.dirname(path), "p")
+  return path
 end
 
 describe("api", function()
@@ -97,7 +108,7 @@ describe("api", function()
         version = 1,
         bookmarks = { { path = file_a, description = "old", labels = {} } },
       }),
-    }, config.file())
+    }, global_file())
 
     fsbookmark.load()
     local bookmark = fsbookmark.get(file_a)
@@ -149,7 +160,7 @@ describe("persistence", function()
           { path = file_a, description = "second", labels = {} },
         },
       }),
-    }, config.file())
+    }, global_file())
 
     fsbookmark.load()
     assert.equals(1, #fsbookmark.list())
@@ -159,13 +170,13 @@ describe("persistence", function()
   it("writes a versioned envelope", function()
     fsbookmark.add(file_a)
     fsbookmark.save()
-    local decoded = vim.json.decode(table.concat(vim.fn.readfile(config.file()), "\n"))
+    local decoded = vim.json.decode(table.concat(vim.fn.readfile(global_file()), "\n"))
     assert.equals(store.SCHEMA_VERSION, decoded.version)
     assert.equals(1, #decoded.bookmarks)
   end)
 
   it("survives a corrupt file", function()
-    vim.fn.writefile({ "{ not json" }, config.file())
+    vim.fn.writefile({ "{ not json" }, global_file())
     assert.is_false(fsbookmark.load())
     assert.same({}, fsbookmark.list())
   end)
@@ -276,6 +287,161 @@ describe("picker source", function()
     -- The matcher is inert under `live`, so finder order is display order.
     local found = find("design")
     assert.equals(file_b, found[1].bookmark.path)
+  end)
+end)
+
+describe("workspace", function()
+  local ws_root, inside, outside
+
+  local function setup_workspace()
+    reset()
+    ws_root = tmpdir .. "/proj"
+    vim.fn.mkdir(ws_root .. "/.git", "p")
+    inside = ws_root .. "/main.lua"
+    outside = tmpdir .. "/elsewhere.lua"
+    vim.fn.writefile({ "" }, inside)
+    vim.fn.writefile({ "" }, outside)
+
+    require("fsbookmark.root").clear_cache()
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks",
+      workspace = { enabled = true },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+    })
+    -- Resolution starts from the current buffer, so sit inside the project.
+    vim.cmd.edit(inside)
+    fsbookmark.load()
+  end
+
+  before_each(setup_workspace)
+  after_each(function()
+    vim.cmd("silent! %bwipeout!")
+    require("fsbookmark.root").clear_cache()
+  end)
+
+  it("resolves the root from a .git marker", function()
+    local root, name = fsbookmark.workspace()
+    assert.equals(ws_root, root)
+    assert.equals("proj", name)
+  end)
+
+  it("routes paths by whether they live under the root", function()
+    assert.equals("workspace", fsbookmark.add(inside).scope)
+    assert.equals("global", fsbookmark.add(outside).scope)
+  end)
+
+  it("writes each scope to its own file", function()
+    fsbookmark.add(inside)
+    fsbookmark.add(outside)
+    fsbookmark.save()
+
+    local ws_file = store.file("workspace")
+    assert.is_not_nil(ws_file)
+    local ws = vim.json.decode(table.concat(vim.fn.readfile(ws_file), "\n"))
+    local global = vim.json.decode(table.concat(vim.fn.readfile(global_file()), "\n"))
+
+    assert.equals(1, #ws.bookmarks)
+    assert.equals(inside, ws.bookmarks[1].path)
+    assert.equals(ws_root, ws.root)
+    assert.equals("proj", ws.name)
+
+    assert.equals(1, #global.bookmarks)
+    assert.equals(outside, global.bookmarks[1].path)
+  end)
+
+  it("does not persist the derived scope field", function()
+    fsbookmark.add(inside)
+    fsbookmark.save()
+    local ws = vim.json.decode(table.concat(vim.fn.readfile(store.file("workspace")), "\n"))
+    assert.is_nil(ws.bookmarks[1].scope)
+  end)
+
+  it("merges both files into one list", function()
+    fsbookmark.add(inside)
+    fsbookmark.add(outside)
+    fsbookmark.save()
+    fsbookmark.load()
+
+    assert.equals(2, #fsbookmark.list())
+    assert.equals("workspace", fsbookmark.get(inside).scope)
+    assert.equals("global", fsbookmark.get(outside).scope)
+  end)
+
+  it("filters by scope:", function()
+    fsbookmark.add(inside)
+    fsbookmark.add(outside)
+
+    assert.equals(1, #fsbookmark.search("scope:workspace"))
+    assert.equals(1, #fsbookmark.search("scope:global"))
+    -- Several scopes are an OR, not an AND.
+    assert.equals(2, #fsbookmark.search("scope:global scope:workspace"))
+  end)
+
+  it("hides another workspace's bookmarks", function()
+    fsbookmark.add(inside)
+    fsbookmark.add(outside)
+    fsbookmark.save()
+
+    -- Move to an unrelated project: global stays, the other workspace does not.
+    local other = tmpdir .. "/other"
+    vim.fn.mkdir(other .. "/.git", "p")
+    vim.fn.writefile({ "" }, other .. "/x.lua")
+    require("fsbookmark.root").clear_cache()
+    vim.cmd.edit(other .. "/x.lua")
+
+    local paths = vim.tbl_map(function(b)
+      return b.path
+    end, fsbookmark.list())
+    assert.same({ outside }, paths)
+  end)
+
+  it("moves a bookmark between files when a rename crosses the root", function()
+    fsbookmark.add(inside, { description = "moved" })
+    local moved = tmpdir .. "/moved.lua"
+    require("fsbookmark.watch").on_rename(inside, moved)
+
+    assert.equals("global", fsbookmark.get(moved).scope)
+    fsbookmark.save()
+
+    local ws = vim.json.decode(table.concat(vim.fn.readfile(store.file("workspace")), "\n"))
+    local global = vim.json.decode(table.concat(vim.fn.readfile(global_file()), "\n"))
+    assert.equals(0, #ws.bookmarks)
+    assert.equals(1, #global.bookmarks)
+    assert.equals("moved", global.bookmarks[1].description)
+  end)
+
+  it("keeps everything global when workspaces are disabled", function()
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks2",
+      workspace = { enabled = false },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+    })
+    assert.is_nil(fsbookmark.workspace())
+    assert.equals("global", fsbookmark.add(inside).scope)
+  end)
+
+  it("migrates a pre-workspace bookmarks.json", function()
+    local dir = tmpdir .. "/migrate"
+    vim.fn.mkdir(dir, "p")
+    vim.fn.writefile({
+      vim.json.encode({ version = 1, bookmarks = { { path = outside, description = "legacy" } } }),
+    }, dir .. "/bookmarks.json")
+
+    fsbookmark.setup({
+      dir = dir .. "/bookmarks",
+      workspace = { enabled = false },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+    })
+
+    assert.equals("legacy", fsbookmark.get(outside).description)
+    assert.equals(0, vim.fn.filereadable(dir .. "/bookmarks.json"))
+    assert.equals(1, vim.fn.filereadable(dir .. "/bookmarks/global.json"))
   end)
 end)
 

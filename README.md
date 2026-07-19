@@ -121,7 +121,12 @@ runtime hot        -- both terms must match
 label:core         -- only bookmarks labelled "core"
 label:core label:ssd
 label:core scheduler
+scope:workspace    -- only this project's bookmarks
 ```
+
+`label:` filters are ANDed with each other and with the free text. Multiple
+`scope:` filters are ORed — `scope:global scope:workspace` means "either",
+which is the only reading that isn't the empty set.
 
 The path is fuzzy-matched on its basename and substring-matched on the full
 path — scattered subsequence matching over an absolute path matches everything.
@@ -151,6 +156,7 @@ fsbookmark.list()                                                   --> bookmark
 fsbookmark.search(query)                                            --> bookmark[]
 fsbookmark.update(path, { description = ..., labels = ... })        --> bookmark|nil
 fsbookmark.labels()                                                 --> string[]
+fsbookmark.workspace()                                              --> root|nil, name|nil
 fsbookmark.is_broken(bookmark)                                      --> boolean
 fsbookmark.open(bookmark|path)
 fsbookmark.picker(opts?)
@@ -172,7 +178,7 @@ same path hits the same bookmark.
   type = "file" | "directory",
   description = "",
   labels = { "core", "runtime" },
-  scope = "global",   -- reserved for per-workspace bookmarks
+  scope = "global",   -- derived from which file it lives in; never stored
   source = "manual",  -- reserved for git/lsp/recent providers
   metadata = {},      -- free-form; for other plugins and future fields
   created_at = 1721000000,
@@ -197,10 +203,11 @@ Defaults:
 
 ```lua
 require("fsbookmark").setup({
-  file = nil,        -- defaults to stdpath("data")/fsbookmark/bookmarks.json
+  dir = nil,         -- defaults to stdpath("data")/fsbookmark/bookmarks
+  workspace = { enabled = true },
   autosave = true,
   watch = true,      -- follow renames; flag missing paths as broken
-  icons = { bookmark = "★", broken = "⚠", directory = "", file = "" },
+  icons = { bookmark = "★", broken = "⚠", global = "🌍", workspace = "📁" },
   picker = {
     keys = { edit = "<c-e>", delete = "<c-d>", reload = "<c-r>", yank = "<c-y>" },
   },
@@ -210,20 +217,52 @@ require("fsbookmark").setup({
 })
 ```
 
+## Workspace
+
+A workspace is the project you currently have open. It is resolved
+automatically — LSP workspace root, then the nearest `.git`, then the cwd — and
+never appears in the API. There is no workspace list, no switcher, and nothing
+to configure per project.
+
+It decides one thing: which file a bookmark is saved to.
+
+```
+root = /work/reyn
+
+add("/work/reyn/src/runtime.py")  ->  workspace file
+add("~/.config/nvim")             ->  global file
+```
+
+Anything under the root belongs to the project; anything else is global. The
+picker and `search()` always show global plus the current workspace merged
+together, so bookmarks from *other* projects stay out of your way.
+
+`scope` is derived from the file a bookmark lives in — it is not stored, and
+you never set it. Renaming a file across the root boundary moves it between
+files automatically.
+
+Turn the whole thing off with `workspace = { enabled = false }` and everything
+lives in `global.json`.
+
 ## Storage
 
 ```
-stdpath("data")/fsbookmark/bookmarks.json
+stdpath("data")/fsbookmark/bookmarks/
+    global.json
+    workspace/
+        reyn-3f8a1c9e2b04.json
 ```
 
 ```json
-{ "version": 1, "bookmarks": [ ... ] }
+{ "version": 1, "root": "/work/reyn", "name": "reyn", "bookmarks": [ ... ] }
 ```
 
 Written atomically (temp file + rename). A corrupt file is reported and treated
 as empty rather than crashing — it is never overwritten until you change
-something. The envelope leaves room for the planned per-workspace split
-(`global.json` + `workspace/*.json`).
+something.
+
+An older `fsbookmark/bookmarks.json` is moved to `bookmarks/global.json`
+automatically on first load.
 
 ## Broken bookmarks
 

@@ -33,16 +33,20 @@ end
 ---@class FSBookmarkQuery
 ---@field terms string[]
 ---@field labels string[]
+---@field scopes string[]
 
---- Split a raw query into free-text terms and `label:` filters.
+--- Split a raw query into free-text terms, `label:` and `scope:` filters.
 ---@param query string|nil
 ---@return FSBookmarkQuery
 function M.parse(query)
-  local parsed = { terms = {}, labels = {} }
+  local parsed = { terms = {}, labels = {}, scopes = {} }
   for word in (query or ""):gmatch("%S+") do
     local label = word:match("^label:(.+)$")
+    local scope = word:match("^scope:(.+)$")
     if label then
       table.insert(parsed.labels, label:lower())
+    elseif scope then
+      table.insert(parsed.scopes, scope:lower())
     else
       table.insert(parsed.terms, word)
     end
@@ -100,6 +104,12 @@ function M.match(bookmark, parsed)
     end
   end
 
+  -- Several `scope:` filters are an OR: `scope:global scope:workspace` is
+  -- "either", not the empty set that ANDing them would give.
+  if #parsed.scopes > 0 and not vim.tbl_contains(parsed.scopes, bookmark.scope or "global") then
+    return nil
+  end
+
   local total = 0
   for _, term in ipairs(parsed.terms) do
     local score = score_term(bookmark, term)
@@ -117,7 +127,7 @@ end
 ---@return Bookmark[]
 function M.filter(items, query)
   local parsed = M.parse(query)
-  if #parsed.terms == 0 and #parsed.labels == 0 then
+  if #parsed.terms == 0 and #parsed.labels == 0 and #parsed.scopes == 0 then
     return vim.deepcopy(items)
   end
 

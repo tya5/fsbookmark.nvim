@@ -60,7 +60,7 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
   group = vim.api.nvim_create_augroup("fsbookmark_exit", { clear = true }),
   callback = function()
     local store = package.loaded["fsbookmark.store"]
-    if store and store.dirty then
+    if store and store.dirty() then
       store.save()
     end
   end,

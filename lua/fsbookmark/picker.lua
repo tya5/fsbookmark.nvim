@@ -26,6 +26,7 @@ end
 local function finder(_opts, ctx)
   local fsbookmark = require("fsbookmark")
   local query = ctx and ctx.filter and ctx.filter.search or ""
+  local workspace = fsbookmark.workspace()
   local items = {}
 
   for index, bookmark in ipairs(fsbookmark.search(query)) do
@@ -38,6 +39,7 @@ local function finder(_opts, ctx)
       dir = bookmark.type == "directory",
       bookmark = bookmark,
       broken = fsbookmark.is_broken(bookmark),
+      show_scope = workspace ~= nil,
     })
   end
 
@@ -52,6 +54,13 @@ local function format(item)
   local icons = config.options.icons
   local bookmark = item.bookmark
   local out = {}
+
+  -- The scope column only appears when there is a workspace to contrast with;
+  -- without one every row would carry the same marker.
+  if item.show_scope then
+    local scoped = bookmark.scope == "workspace"
+    table.insert(out, { (scoped and icons.workspace or icons.global) .. " ", "SnacksPickerSpecial" })
+  end
 
   local icon = item.broken and icons.broken or icons.bookmark
   table.insert(out, { icon .. " ", item.broken and "SnacksPickerLinkBroken" or "SnacksPickerLabel" })
@@ -137,8 +146,10 @@ function M.source()
     end
   end
 
+  local _, workspace_name = fsbookmark.workspace()
+
   return {
-    title = "Bookmarks",
+    title = workspace_name and ("Bookmarks (%s)"):format(workspace_name) or "Bookmarks",
     -- `live` hands the raw prompt to the finder and keeps the built-in matcher
     -- out of the way; see the comment on `finder`.
     live = true,

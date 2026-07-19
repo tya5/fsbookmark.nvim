@@ -36,19 +36,16 @@ function M.add(path, fields)
     type = util.type_of(path),
     description = (fields or {}).description or "",
     labels = (fields or {}).labels or {},
-    -- Reserved for the planned per-workspace split. Written from day one so
-    -- that adding workspace bookmarks later needs no migration.
-    scope = (fields or {}).scope or "global",
-    -- Likewise reserved: a future git/lsp/recent provider tags its entries
-    -- here, so nothing about the stored shape has to change to grow one.
+    -- Reserved: a future git/lsp/recent provider tags its entries here, so
+    -- nothing about the stored shape has to change to grow one.
     source = (fields or {}).source or "manual",
     metadata = (fields or {}).metadata or {},
     created_at = now,
     updated_at = now,
   }
 
-  store.insert(bookmark)
-  store.touch()
+  -- The store decides where this lives; callers never name a scope.
+  store.touch(store.insert(bookmark))
   events.emit(events.ADD, bookmark)
   return bookmark, true
 end
@@ -63,12 +60,12 @@ function M.remove(path)
     return nil
   end
 
-  local removed = store.delete(path)
+  local removed, scope = store.delete(path)
   if not removed then
     return nil
   end
 
-  store.touch()
+  store.touch(scope)
   events.emit(events.REMOVE, removed)
   return removed
 end
@@ -133,9 +130,6 @@ function M.update(path, data)
   if data.labels ~= nil then
     bookmark.labels = data.labels
   end
-  if data.scope ~= nil then
-    bookmark.scope = data.scope
-  end
   if data.source ~= nil then
     bookmark.source = data.source
   end
@@ -144,9 +138,16 @@ function M.update(path, data)
   end
   bookmark.updated_at = os.time()
 
-  store.touch()
+  store.touch(bookmark.scope)
   events.emit(events.UPDATE, bookmark)
   return bookmark
+end
+
+--- The current workspace, or nil when there is none. Informational only —
+--- nothing in the API takes a workspace as an argument.
+---@return string|nil root, string|nil name
+function M.workspace()
+  return store.workspace()
 end
 
 ---@return boolean ok

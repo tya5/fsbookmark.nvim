@@ -2,9 +2,16 @@ local M = {}
 
 ---@class FSBookmarkConfig
 local defaults = {
-  -- Where bookmarks are persisted. Defaults to stdpath("data")/fsbookmark/bookmarks.json
+  -- Where bookmarks are persisted. Defaults to
+  -- stdpath("data")/fsbookmark/bookmarks, holding global.json and workspace/.
   ---@type string|nil
-  file = nil,
+  dir = nil,
+
+  workspace = {
+    -- Resolve a workspace root and keep its bookmarks in a separate file.
+    -- With this off, everything lives in global.json.
+    enabled = true,
+  },
 
   -- Save to disk automatically after every mutation.
   autosave = true,
@@ -17,6 +24,8 @@ local defaults = {
     broken = "⚠",
     directory = "",
     file = "",
+    global = "🌍",
+    workspace = "📁",
   },
 
   picker = {
@@ -66,8 +75,8 @@ function M.setup(opts)
 end
 
 ---@return string
-function M.file()
-  return M.options.file or vim.fs.joinpath(vim.fn.stdpath("data"), "fsbookmark", "bookmarks.json")
+function M.dir()
+  return M.options.dir or vim.fs.joinpath(vim.fn.stdpath("data"), "fsbookmark", "bookmarks")
 end
 
 return M

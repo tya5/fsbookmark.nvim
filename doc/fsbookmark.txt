@@ -18,7 +18,8 @@ CONTENTS                                                 *fsbookmark-contents*
     7. API .................................. |fsbookmark-api|
     8. Events ............................... |fsbookmark-events|
     9. Storage .............................. |fsbookmark-storage|
-   10. Explorer ............................. |fsbookmark-explorer|
+   10. Workspace ............................ |fsbookmark-workspace|
+   11. Explorer ............................. |fsbookmark-explorer|
 
 ==============================================================================
 1. INTRODUCTION                                      *fsbookmark-introduction*
@@ -37,7 +38,8 @@ enabled; the API works without it.
 <
 Defaults: >lua
     {
-      file = nil,      -- stdpath("data")/fsbookmark/bookmarks.json
+      dir = nil,       -- stdpath("data")/fsbookmark/bookmarks
+      workspace = { enabled = true },
       autosave = true,
       watch = true,
       icons = { bookmark = "★", broken = "⚠", directory = "", file = "" },
@@ -117,9 +119,10 @@ Path, description and labels are fuzzy-matched. Multiple terms are ANDed. >
     label:core
     label:core label:ssd
     label:core scheduler
+    scope:workspace
 <
 The path is fuzzy-matched on its basename and substring-matched on the full
-path.
+path. `label:` filters are ANDed; multiple `scope:` filters are ORed.
 
 ==============================================================================
 7. API                                                        *fsbookmark-api*
@@ -141,6 +144,7 @@ fsbookmark.list()                                          *fsbookmark.list()*
 fsbookmark.search({query})                               *fsbookmark.search()*
 fsbookmark.update({path}, {data})                        *fsbookmark.update()*
 fsbookmark.labels()                                      *fsbookmark.labels()*
+fsbookmark.workspace()                     see |fsbookmark-workspace|
 fsbookmark.is_broken({bookmark})                      *fsbookmark.is_broken()*
 fsbookmark.open({bookmark})                                *fsbookmark.open()*
 fsbookmark.edit({path}, {on_done})                         *fsbookmark.edit()*
@@ -189,20 +193,55 @@ The bookmark is attached as the autocmd's `data`. >lua
 ==============================================================================
 9. STORAGE                                                *fsbookmark-storage*
 
-    stdpath("data")/fsbookmark/bookmarks.json
-
+>
+    stdpath("data")/fsbookmark/bookmarks/
+        global.json
+        workspace/
+            reyn-3f8a1c9e2b04.json
+<
 >json
-    { "version": 1, "bookmarks": [ ... ] }
+    { "version": 1, "root": "...", "name": "reyn", "bookmarks": [ ... ] }
 <
 Written atomically. A corrupt file is reported and treated as empty; it is not
 overwritten until something changes.
+
+An older `fsbookmark/bookmarks.json` is moved to `bookmarks/global.json` on
+first load.
 
 Bookmarks pointing at a missing path are shown as broken (`⚠`) rather than
 deleted. Renames done inside Neovim are followed. `:FSBookmark prune` removes
 all broken bookmarks.
 
 ==============================================================================
-10. EXPLORER                                             *fsbookmark-explorer*
+10. WORKSPACE                                           *fsbookmark-workspace*
+
+A workspace is the project currently open. It is resolved automatically and
+does not appear in the public API: there is no workspace list, switcher,
+creation or deletion, and no session management.
+
+Resolution order:
+
+    1. LSP workspace root
+    2. Nearest ancestor containing `.git`
+    3. Current working directory
+
+It decides one thing — which file a bookmark is written to. Paths under the
+root go to the workspace file, everything else to `global.json`. Reads always
+merge global with the current workspace, so other projects' bookmarks stay
+hidden.
+
+`scope` is derived from the file a bookmark was read from. It is never
+written to disk and never set by a caller. Renaming a file across the root
+boundary moves it between files.
+
+fsbookmark.workspace()                                *fsbookmark.workspace()*
+    Returns the current root and name, or nil. Informational only.
+
+Disable with: >lua
+    require("fsbookmark").setup({ workspace = { enabled = false } })
+<
+==============================================================================
+11. EXPLORER                                             *fsbookmark-explorer*
 
 >lua
     require("fsbookmark.explorer").toggle()

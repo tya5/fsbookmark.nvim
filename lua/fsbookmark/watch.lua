@@ -10,9 +10,9 @@ M.group = nil
 ---@param to string
 function M.on_rename(from, to)
   local events = require("fsbookmark.events")
-  local bookmark = store.rekey(from, to)
+  local bookmark, scope = store.rekey(from, to)
   if bookmark then
-    store.touch()
+    store.touch(scope)
     events.emit(events.UPDATE, bookmark)
   end
 end

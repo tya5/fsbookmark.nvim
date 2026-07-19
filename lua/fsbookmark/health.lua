@@ -64,8 +64,7 @@ end
 
 local function check_storage()
   health.start("Storage")
-  local path = config.file()
-  local dir = vim.fs.dirname(path)
+  local dir = config.dir()
 
   if vim.fn.isdirectory(dir) == 0 then
     health.info(dir .. " does not exist yet (created on first save)")
@@ -75,18 +74,20 @@ local function check_storage()
     health.ok(dir .. " is writable")
   end
 
-  if not vim.uv.fs_stat(path) then
-    health.info(path .. " does not exist yet")
+  if not store.load() then
+    health.error("a bookmark file could not be parsed", {
+      "Fix or delete the file named above. It is not overwritten until you",
+      "change something.",
+    })
     return
   end
 
-  if store.load() then
-    health.ok(("%s — %d bookmark(s)"):format(path, #store.items))
-  else
-    health.error(path .. " could not be parsed", {
-      "Fix or delete the file. It is not overwritten until you change something.",
-    })
-    return
+  for _, scope in ipairs({ "global", "workspace" }) do
+    local collection = store.collections[scope]
+    local path = store.file(scope)
+    if path then
+      health.ok(("%s — %d bookmark(s)"):format(path, #collection.items))
+    end
   end
 
   local broken = require("fsbookmark.watch").broken()
@@ -123,11 +124,28 @@ local function check_conflicts()
   end
 end
 
+local function check_workspace()
+  health.start("Workspace")
+  if not config.options.workspace.enabled then
+    health.info("workspace resolution is disabled — everything lives in global.json")
+    return
+  end
+
+  local root, name = require("fsbookmark").workspace()
+  if not root then
+    health.info("no workspace resolved for the current buffer")
+    return
+  end
+  health.ok(("%s (%s)"):format(root, name))
+  health.info("bookmarks under this root are saved to the workspace file, others to global")
+end
+
 function M.check()
   check_nvim()
   check_setup()
   check_snacks()
   check_storage()
+  check_workspace()
   check_conflicts()
 end
 
