@@ -138,11 +138,17 @@ function M.format(item, picker)
   local Snacks = require("snacks")
   local out = Snacks.picker.format.file(item, picker)
 
+  local icon = config.options.icons.bookmark
   local bookmark = item.file and require("fsbookmark").get(item.file)
+
+  -- The marker is a leading gutter, so it has to occupy the same width on
+  -- every row — prepending it only to bookmarked entries pushes their tree
+  -- indent one cell right of everyone else's. `virtual` keeps it out of the
+  -- matcher's text either way.
   if bookmark then
-    -- `virtual` keeps the marker out of the matcher's text.
-    table.insert(out, 1, { config.options.icons.bookmark, "SnacksPickerLabel", virtual = true })
-    table.insert(out, 2, { " ", virtual = true })
+    table.insert(out, 1, { icon .. " ", "SnacksPickerLabel", virtual = true })
+  else
+    table.insert(out, 1, { (" "):rep(vim.fn.strdisplaywidth(icon) + 1), virtual = true })
   end
 
   return out
