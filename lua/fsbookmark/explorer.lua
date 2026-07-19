@@ -101,8 +101,18 @@ function M.refresh()
     for _, picker in ipairs(Snacks.picker.get({ source = "explorer" }) or {}) do
       -- `list:update()`/`list:render()` reuse the rendered rows, so the
       -- bookmark marker would not appear until the explorer was reopened.
-      -- Only re-running the finder re-formats the tree.
+      -- Only re-running the finder re-formats the tree — and that resets the
+      -- cursor to the top unless the current position is pinned first, which
+      -- is what Snacks' own explorer actions do around their refreshes.
       pcall(function()
+        local list = picker.list
+        -- Pin the window's cursor, not the picker's tracked one, for the same
+        -- reason `current_path` reads it: the two can disagree.
+        local row
+        if list.win and list.win:valid() and list.win.win == vim.api.nvim_get_current_win() then
+          row = vim.api.nvim_win_get_cursor(list.win.win)[1]
+        end
+        list:set_target(row)
         picker:find()
       end)
     end
