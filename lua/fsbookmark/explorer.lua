@@ -14,9 +14,20 @@ function M.providers.snacks()
   if not ok or not Snacks.picker then
     return nil
   end
-  local pickers = Snacks.picker.get({ source = "explorer" })
-  local picker = pickers and pickers[1]
-  local item = picker and picker:current()
+  local picker = (Snacks.picker.get({ source = "explorer" }) or {})[1]
+  if not picker then
+    return nil
+  end
+
+  -- When invoked from the list window, trust the window's cursor rather than
+  -- the picker's tracked one: they can disagree.
+  local item
+  local list = picker.list
+  if list and list.win and list.win.win == vim.api.nvim_get_current_win() then
+    item = list:get(vim.api.nvim_win_get_cursor(list.win.win)[1])
+  end
+  item = item or picker:current()
+
   return item and (item.file or item._path) or nil
 end
 
@@ -88,8 +99,11 @@ function M.refresh()
   local ok, Snacks = pcall(require, "snacks")
   if ok and Snacks.picker then
     for _, picker in ipairs(Snacks.picker.get({ source = "explorer" }) or {}) do
+      -- `list:update()`/`list:render()` reuse the rendered rows, so the
+      -- bookmark marker would not appear until the explorer was reopened.
+      -- Only re-running the finder re-formats the tree.
       pcall(function()
-        picker.list:update()
+        picker:find()
       end)
     end
   end

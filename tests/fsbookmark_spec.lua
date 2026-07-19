@@ -444,6 +444,34 @@ describe("workspace", function()
   end)
 end)
 
+describe("explorer", function()
+  before_each(reset)
+
+  it("falls back to the current buffer outside an explorer", function()
+    vim.cmd.edit(file_a)
+    assert.equals(file_a, require("fsbookmark.explorer").current_path())
+    vim.cmd("silent! %bwipeout!")
+  end)
+
+  it("reveals the parent of a file and a directory itself", function()
+    -- `open_directory` is what <C-o> and directory bookmarks route through.
+    local opened
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks",
+      workspace = { enabled = false },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+      open_directory = function(path)
+        opened = path
+      end,
+    })
+
+    fsbookmark.open(fsbookmark.add(dir_a))
+    assert.equals(dir_a, opened)
+  end)
+end)
+
 describe("events", function()
   before_each(reset)
 
