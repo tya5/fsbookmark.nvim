@@ -444,6 +444,33 @@ describe("workspace", function()
   end)
 end)
 
+describe("label completion", function()
+  local complete = function(line)
+    return require("fsbookmark.edit").complete_labels("", line)
+  end
+
+  before_each(function()
+    reset()
+    fsbookmark.add(file_a, { labels = { "core", "config", "runtime" } })
+  end)
+
+  it("completes the whole line for an empty token", function()
+    assert.same({ "config", "core", "runtime" }, complete(""))
+  end)
+
+  it("filters by the token after the last comma", function()
+    assert.same({ "config", "core" }, complete("co"))
+    -- Candidates carry the whole line, since that is the completion unit.
+    assert.same({ "core,config" }, complete("core,co"))
+  end)
+
+  it("does not offer labels already on the line", function()
+    -- "core" is filtered out even though it matches the "co" token.
+    assert.same({ "core,runtime,config" }, complete("core,runtime,co"))
+    assert.same({}, complete("core,config,runtime,"))
+  end)
+end)
+
 describe("explorer", function()
   before_each(reset)
 

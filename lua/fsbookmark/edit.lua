@@ -14,9 +14,16 @@ function M.complete_labels(lead, line)
   end
   token = vim.trim(token)
 
+  -- Labels already on the line are not candidates; offering them again just
+  -- proposes a duplicate that `parse_csv` would drop anyway.
+  local taken = {}
+  for _, label in ipairs(util.parse_csv(prefix)) do
+    taken[label:lower()] = true
+  end
+
   local out = {}
   for _, label in ipairs(require("fsbookmark").labels()) do
-    if vim.startswith(label:lower(), token:lower()) then
+    if not taken[label:lower()] and vim.startswith(label:lower(), token:lower()) then
       table.insert(out, prefix .. label)
     end
   end
