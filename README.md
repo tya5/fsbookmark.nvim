@@ -309,6 +309,14 @@ treated as empty, and is left on disk untouched until you change something.
 
 Custom TUI, custom picker, SQLite, git/cloud sync, tag hierarchies, tree view.
 
+Also deliberately absent: bookmark "providers" that would surface git,
+recent or LSP entries alongside manual ones. gitsigns, `Snacks.picker.recent`
+and the LSP pickers already cover those, and composing them here would change
+what `list()` means — `add()`, `remove()` and `update()` could then only apply
+to part of it. `bookmark.source` stays reserved so this remains possible
+without a storage migration, but composition would go behind its own API
+rather than redefining `list()`.
+
 ## License
 
 MIT
