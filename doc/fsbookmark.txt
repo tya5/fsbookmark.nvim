@@ -45,10 +45,11 @@ Defaults: >lua
       icons = { bookmark = "★", broken = "⚠", directory = "", file = "" },
       picker = {
         keys = {
-          edit = "<c-e>", delete = "<c-d>",
-          reload = "<c-r>", yank = "<c-y>",
+          edit = "<c-e>", delete = "<c-x>", reload = "<c-l>",
+          yank = "<c-y>", reveal = "<c-o>",
         },
       },
+      -- `m` is explorer_move in the snacks explorer; use "b" there.
       explorer = { enabled = true, key = "mb" },
       keys = { enabled = true, prefix = "<leader>m" },
       open_directory = nil,
@@ -94,20 +95,26 @@ toggles the bookmark for the path under the cursor.
 <
     <CR>     Open (directories open in the explorer)
     <C-e>    Edit description and labels
-    <C-d>    Delete (respects multi-selection)
-    <C-r>    Reload from disk
+    <C-x>    Delete (respects multi-selection)
+    <C-l>    Reload from disk
     <C-y>    Copy path
-    <C-b>    Reveal in explorer
+    <C-o>    Reveal in explorer
+
+<C-d> and <C-r> are not used: snacks binds those (and most other <C-*> keys)
+inside the picker, and reusing one shadows its action.
 
 The picker is a `live` snacks source: the prompt goes to this plugin's parser
 (see |fsbookmark-search|), not to the built-in matcher, so `label:` filters
 behave identically in the picker and in |fsbookmark.search()|.
 
-To expose it as `Snacks.picker.fsbookmark()`, register the source: >lua
+To expose it as `Snacks.picker.fsbookmark()`, register the source as a table
+(snacks walks `sources` on setup, so a bare function raises): >lua
     sources = {
-      fsbookmark = function()
-        return require("fsbookmark.picker").source()
-      end,
+      fsbookmark = {
+        config = function(opts)
+          return require("fsbookmark.picker").source(opts)
+        end,
+      },
     }
 <
 ==============================================================================

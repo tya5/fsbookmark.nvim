@@ -83,10 +83,24 @@ local function format(item)
   return out
 end
 
---- The Snacks source definition. Register it under
---- `opts.picker.sources.fsbookmark` to get `Snacks.picker.fsbookmark()`.
+--- The Snacks source definition.
+---
+--- To expose `Snacks.picker.fsbookmark()`, register it as a *table* under
+--- `picker.sources` — Snacks walks the sources table on setup, so a bare
+--- function there raises before the picker ever opens:
+---
+--- ```lua
+--- sources = {
+---   fsbookmark = {
+---     config = function(opts)
+---       return require("fsbookmark.picker").source(opts)
+---     end,
+---   },
+--- }
+--- ```
+---@param opts table|nil merged config to extend, when called as a source `config`
 ---@return table
-function M.source()
+function M.source(opts)
   local fsbookmark = require("fsbookmark")
   local keys = config.options.picker.keys
 
@@ -148,7 +162,7 @@ function M.source()
 
   local _, workspace_name = fsbookmark.workspace()
 
-  return {
+  return vim.tbl_deep_extend("force", opts or {}, {
     title = workspace_name and ("Bookmarks (%s)"):format(workspace_name) or "Bookmarks",
     -- `live` hands the raw prompt to the finder and keeps the built-in matcher
     -- out of the way; see the comment on `finder`.
@@ -170,7 +184,7 @@ function M.source()
         fsbookmark.open(item.bookmark)
       end
     end,
-  }
+  })
 end
 
 --- Open the bookmark picker.
@@ -180,7 +194,7 @@ function M.open(opts)
   if not Snacks then
     return
   end
-  return Snacks.picker.pick(vim.tbl_deep_extend("force", { source = "fsbookmark" }, M.source(), opts or {}))
+  return Snacks.picker.pick(M.source(vim.tbl_deep_extend("force", { source = "fsbookmark" }, opts or {})))
 end
 
 return M

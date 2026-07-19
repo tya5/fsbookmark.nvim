@@ -59,13 +59,13 @@ explorer:
   opts = {
     picker = {
       sources = {
-        fsbookmark = function() return require("fsbookmark.picker").source() end,
+        -- Must be a table: Snacks walks `sources` on setup, so a bare
+        -- function here raises before the picker ever opens.
+        fsbookmark = {
+          config = function(opts) return require("fsbookmark.picker").source(opts) end,
+        },
         explorer = {
           format = function(item, picker) return require("fsbookmark.explorer").format(item, picker) end,
-          win = { list = { keys = { ["mb"] = "fsbookmark_toggle" } } },
-          actions = {
-            fsbookmark_toggle = function() require("fsbookmark.explorer").toggle() end,
-          },
         },
       },
     },
@@ -100,10 +100,15 @@ Also `:FSBookmark {add,remove,toggle,edit,list,prune,save,load} [path]`.
 | -------- | ------------- |
 | `<CR>`   | Open          |
 | `<C-e>`  | Edit          |
-| `<C-d>`  | Delete        |
-| `<C-r>`  | Reload        |
+| `<C-x>`  | Delete        |
+| `<C-l>`  | Reload        |
 | `<C-y>`  | Copy path     |
-| `<C-b>`  | Reveal in explorer |
+| `<C-o>`  | Reveal in explorer |
+
+Snacks already owns `<C-a><C-b><C-c><C-d><C-f><C-g><C-j><C-k><C-n><C-p><C-q>`
+`<C-r><C-s><C-t><C-u><C-v><C-w>` inside the picker, so the obvious `<C-d>` for
+delete and `<C-r>` for reload are not available — binding them makes Snacks log
+a duplicate-mapping warning and shadows its own scroll keys.
 
 `<C-d>` respects multi-selection.
 
@@ -209,9 +214,12 @@ require("fsbookmark").setup({
   watch = true,      -- follow renames; flag missing paths as broken
   icons = { bookmark = "★", broken = "⚠", global = "🌍", workspace = "📁" },
   picker = {
-    keys = { edit = "<c-e>", delete = "<c-d>", reload = "<c-r>", yank = "<c-y>" },
+    keys = {
+      edit = "<c-e>", delete = "<c-x>", reload = "<c-l>",
+      yank = "<c-y>", reveal = "<c-o>",
+    },
   },
-  explorer = { enabled = true, key = "mb" },
+  explorer = { enabled = true, key = "mb" },  -- use "b" with the Snacks explorer, where `m` is move
   keys = { enabled = true, prefix = "<leader>m" },
   open_directory = nil,  -- fun(path); defaults to Snacks explorer / oil / neo-tree
 })
