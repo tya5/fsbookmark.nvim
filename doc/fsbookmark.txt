@@ -1,0 +1,198 @@
+*fsbookmark.txt*   Bookmarks for files and directories, with metadata
+
+                                                                 *fsbookmark*
+                                                            *fsbookmark.nvim*
+
+Author:  tya5
+License: MIT
+
+==============================================================================
+CONTENTS                                                 *fsbookmark-contents*
+
+    1. Introduction ......................... |fsbookmark-introduction|
+    2. Setup ................................ |fsbookmark-setup|
+    3. Commands ............................. |fsbookmark-commands|
+    4. Mappings ............................. |fsbookmark-mappings|
+    5. Picker ............................... |fsbookmark-picker|
+    6. Search ............................... |fsbookmark-search|
+    7. API .................................. |fsbookmark-api|
+    8. Events ............................... |fsbookmark-events|
+    9. Storage .............................. |fsbookmark-storage|
+   10. Explorer ............................. |fsbookmark-explorer|
+
+==============================================================================
+1. INTRODUCTION                                      *fsbookmark-introduction*
+
+fsbookmark.nvim bookmarks files and directories together with a description
+and free-form labels, and makes all of it fuzzy-searchable from one picker.
+
+Requires Neovim >= 0.10. The picker requires snacks.nvim with `picker`
+enabled; the API works without it.
+
+==============================================================================
+2. SETUP                                                    *fsbookmark-setup*
+
+>lua
+    require("fsbookmark").setup({})
+<
+Defaults: >lua
+    {
+      file = nil,      -- stdpath("data")/fsbookmark/bookmarks.json
+      autosave = true,
+      watch = true,
+      icons = { bookmark = "★", broken = "⚠", directory = "", file = "" },
+      picker = {
+        keys = {
+          edit = "<c-e>", delete = "<c-d>",
+          reload = "<c-r>", yank = "<c-y>",
+        },
+      },
+      explorer = { enabled = true, key = "mb" },
+      keys = { enabled = true, prefix = "<leader>m" },
+      open_directory = nil,
+    }
+<
+The keymap prefix is `<leader>m` rather than `<leader>b` because LazyVim uses
+`<leader>b` for its buffer group.
+
+==============================================================================
+3. COMMANDS                                              *fsbookmark-commands*
+
+                                                                *:FSBookmark*
+:FSBookmark [subcommand] [path]
+
+    add     [path]   Register a path (default: current buffer).
+    remove  [path]   Unregister a path.
+    toggle  [path]   Add if missing, remove if present.
+    edit    [path]   Prompt for description and labels.
+    list             Open the picker. This is the default subcommand.
+    prune            Remove every bookmark whose path no longer exists.
+    save             Write to disk.
+    load             Re-read from disk, discarding unsaved changes.
+
+==============================================================================
+4. MAPPINGS                                              *fsbookmark-mappings*
+
+Registered when `keys.enabled` is true, under `keys.prefix` (`<leader>m`):
+
+    a    Add bookmark
+    f    Find bookmarks
+    t    Toggle bookmark
+    e    Edit bookmark
+    r    Remove bookmark
+
+In explorer buffers (snacks explorer, neo-tree, oil), `explorer.key` (`mb`)
+toggles the bookmark for the path under the cursor.
+
+==============================================================================
+5. PICKER                                                  *fsbookmark-picker*
+
+>lua
+    require("fsbookmark").picker()
+<
+    <CR>     Open (directories open in the explorer)
+    <C-e>    Edit description and labels
+    <C-d>    Delete (respects multi-selection)
+    <C-r>    Reload from disk
+    <C-y>    Copy path
+
+To expose it as `Snacks.picker.fsbookmark()`, register the source: >lua
+    sources = {
+      fsbookmark = function()
+        return require("fsbookmark.picker").source()
+      end,
+    }
+<
+==============================================================================
+6. SEARCH                                                  *fsbookmark-search*
+
+Path, description and labels are fuzzy-matched. Multiple terms are ANDed. >
+    runtime
+    runtime hot
+    label:core
+    label:core label:ssd
+    label:core scheduler
+<
+The path is fuzzy-matched on its basename and substring-matched on the full
+path.
+
+==============================================================================
+7. API                                                        *fsbookmark-api*
+
+`path` defaults to the current buffer and is normalized before use.
+
+fsbookmark.add({path}, {fields})                            *fsbookmark.add()*
+    Register a path. {fields} may hold `description` and `labels`.
+    Returns the bookmark and whether it was newly created.
+
+fsbookmark.remove({path})                                *fsbookmark.remove()*
+    Unregister a path. Returns the removed bookmark or nil.
+
+fsbookmark.toggle({path})                                *fsbookmark.toggle()*
+    Returns true when the bookmark now exists.
+
+fsbookmark.get({path})                                      *fsbookmark.get()*
+fsbookmark.list()                                          *fsbookmark.list()*
+fsbookmark.search({query})                               *fsbookmark.search()*
+fsbookmark.update({path}, {data})                        *fsbookmark.update()*
+fsbookmark.labels()                                      *fsbookmark.labels()*
+fsbookmark.is_broken({bookmark})                      *fsbookmark.is_broken()*
+fsbookmark.open({bookmark})                                *fsbookmark.open()*
+fsbookmark.edit({path}, {on_done})                         *fsbookmark.edit()*
+fsbookmark.picker({opts})                                *fsbookmark.picker()*
+fsbookmark.save()                                          *fsbookmark.save()*
+fsbookmark.load()                                          *fsbookmark.load()*
+
+A bookmark is: >lua
+    {
+      id = "...",
+      path = "/abs/path",
+      type = "file"|"directory",
+      description = "",
+      labels = { "core" },
+      created_at = 0,
+      updated_at = 0,
+    }
+<
+==============================================================================
+8. EVENTS                                                  *fsbookmark-events*
+
+    User FSBookmarkAdd
+    User FSBookmarkRemove
+    User FSBookmarkUpdate
+
+The bookmark is attached as the autocmd's `data`. >lua
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "FSBookmarkAdd",
+      callback = function(args) vim.print(args.data.path) end,
+    })
+<
+==============================================================================
+9. STORAGE                                                *fsbookmark-storage*
+
+    stdpath("data")/fsbookmark/bookmarks.json
+
+>json
+    { "version": 1, "bookmarks": [ ... ] }
+<
+Written atomically. A corrupt file is reported and treated as empty; it is not
+overwritten until something changes.
+
+Bookmarks pointing at a missing path are shown as broken (`⚠`) rather than
+deleted. Renames done inside Neovim are followed. `:FSBookmark prune` removes
+all broken bookmarks.
+
+==============================================================================
+10. EXPLORER                                             *fsbookmark-explorer*
+
+>lua
+    require("fsbookmark.explorer").toggle()
+<
+Reads the cursor path from the snacks explorer, neo-tree or oil, falling back
+to the current buffer.
+
+`require("fsbookmark.explorer").format(item, picker)` is a drop-in `format`
+for the snacks explorer source that prefixes bookmarked entries with the
+bookmark icon.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
