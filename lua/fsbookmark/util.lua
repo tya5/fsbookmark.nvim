@@ -50,6 +50,60 @@ function M.uuid()
   return string.format("%x-%x-%x", os.time(), counter, math.random(0, 0xffffff))
 end
 
+--- Encode to indented JSON with deterministic key order.
+---
+--- `vim.json.encode` emits one line and iterates keys in table order, so a
+--- checked-in file would reshuffle on every save and diff as a single line.
+---@param value any
+---@param order string[]|nil keys to emit first, in this order
+---@param indent string|nil
+---@return string
+function M.encode_pretty(value, order, indent)
+  indent = indent or ""
+  local pad = indent .. "  "
+
+  if type(value) ~= "table" then
+    return vim.json.encode(value)
+  end
+
+  if vim.islist(value) then
+    if #value == 0 then
+      return "[]"
+    end
+    local parts = {}
+    for _, item in ipairs(value) do
+      table.insert(parts, pad .. M.encode_pretty(item, order, pad))
+    end
+    return "[\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "]"
+  end
+
+  local keys, seen = {}, {}
+  for _, key in ipairs(order or {}) do
+    if value[key] ~= nil then
+      table.insert(keys, key)
+      seen[key] = true
+    end
+  end
+  local rest = {}
+  for key in pairs(value) do
+    if not seen[key] then
+      table.insert(rest, key)
+    end
+  end
+  table.sort(rest)
+  vim.list_extend(keys, rest)
+
+  if #keys == 0 then
+    return "{}"
+  end
+
+  local parts = {}
+  for _, key in ipairs(keys) do
+    table.insert(parts, pad .. vim.json.encode(tostring(key)) .. ": " .. M.encode_pretty(value[key], order, pad))
+  end
+  return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "}"
+end
+
 ---@param msg string
 ---@param level integer|nil
 function M.notify(msg, level)

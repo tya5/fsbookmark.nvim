@@ -80,8 +80,7 @@ local function format(item, picker)
   -- The scope column only appears when there is a workspace to contrast with;
   -- without one every row would carry the same marker.
   if item.show_scope then
-    local scoped = bookmark.scope == "workspace"
-    table.insert(out, { (scoped and icons.workspace or icons.global) .. " ", "SnacksPickerSpecial" })
+    table.insert(out, { (icons[bookmark.scope] or icons.global) .. " ", "SnacksPickerSpecial" })
   end
 
   local icon = item.broken and icons.broken or icons.bookmark
@@ -157,6 +156,20 @@ function M.source(opts)
       fsbookmark.load()
       picker:find()
     end,
+    -- One key toggles between "mine" and "the repository's".
+    fsbookmark_share = function(picker, item)
+      if not item then
+        return
+      end
+      local shared = item.bookmark.scope == "shared"
+      local bookmark, err = (shared and fsbookmark.unshare or fsbookmark.share)(item.bookmark.path)
+      if not bookmark then
+        util.notify(err or "could not change sharing", vim.log.levels.WARN)
+        return
+      end
+      util.notify((shared and "unshared " or "shared ") .. util.display_path(bookmark.path))
+      picker:find()
+    end,
     fsbookmark_reveal = function(picker, item)
       if not item then
         return
@@ -184,6 +197,7 @@ function M.source(opts)
     reload = "fsbookmark_reload",
     yank = "fsbookmark_yank",
     reveal = "fsbookmark_reveal",
+    share = "fsbookmark_share",
   }
   for name, action in pairs(map) do
     local key = keys[name]
@@ -228,7 +242,38 @@ end
 
 --- Open the bookmark picker.
 ---@param opts table|nil forwarded to `Snacks.picker.pick`
+--- Backends in preference order.
+local BACKENDS = {
+  { name = "snacks", plugin = "snacks" },
+  { name = "telescope", plugin = "telescope" },
+  { name = "fzf-lua", plugin = "fzf-lua" },
+}
+
+---@return string|nil
+function M.backend()
+  local configured = config.options.picker.backend
+  if configured and configured ~= "auto" then
+    return configured
+  end
+  for _, backend in ipairs(BACKENDS) do
+    if pcall(require, backend.plugin) then
+      return backend.name
+    end
+  end
+  return nil
+end
+
 function M.open(opts)
+  local backend = M.backend()
+
+  -- The query language lives in `search.lua`, so every backend behaves the
+  -- same; only the presentation layer differs.
+  if backend == "telescope" then
+    return require("fsbookmark.pickers.telescope").open(opts)
+  elseif backend == "fzf-lua" then
+    return require("fsbookmark.pickers.fzf_lua").open(opts)
+  end
+
   local Snacks = snacks()
   if not Snacks then
     return

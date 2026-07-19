@@ -143,6 +143,45 @@ function M.update(path, data)
   return bookmark
 end
 
+--- Promote a bookmark into the repository's checked-in file, so it ships with
+--- the project. Nothing moves here implicitly — this is the only way in.
+---@param path string|nil defaults to the current buffer
+---@return Bookmark|nil bookmark, string|nil error
+function M.share(path)
+  store.ensure()
+  path = M.resolve(path)
+  if not path then
+    return nil, "no path"
+  end
+
+  local bookmark, err = store.move(path, "shared")
+  if not bookmark then
+    return nil, err
+  end
+  store.save()
+  events.emit(events.UPDATE, bookmark)
+  return bookmark, nil
+end
+
+--- Move a shared bookmark back into your personal files.
+---@param path string|nil defaults to the current buffer
+---@return Bookmark|nil bookmark, string|nil error
+function M.unshare(path)
+  store.ensure()
+  path = M.resolve(path)
+  if not path then
+    return nil, "no path"
+  end
+
+  local bookmark, err = store.move(path, store.scope_for(path))
+  if not bookmark then
+    return nil, err
+  end
+  store.save()
+  events.emit(events.UPDATE, bookmark)
+  return bookmark, nil
+end
+
 --- The current workspace, or nil when there is none. Informational only —
 --- nothing in the API takes a workspace as an argument.
 ---@return string|nil root, string|nil name

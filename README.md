@@ -6,9 +6,9 @@ Not a "recently used files" list — a workspace navigation layer. Every bookmar
 carries a description and free-form labels, and everything is fuzzy-searchable
 from one picker.
 
-This plugin ships almost no UI of its own. It leans on
-[snacks.nvim](https://github.com/folke/snacks.nvim) for the picker and explorer,
-and `vim.ui.input` for editing.
+This plugin ships almost no UI of its own. It leans on your existing picker
+(snacks, telescope or fzf-lua), the Snacks explorer, and `vim.ui.input` for
+editing.
 
 ```
 ★ runtime.py    Runtime scheduler    core runtime hot    src/runtime.py
@@ -19,7 +19,14 @@ and `vim.ui.input` for editing.
 ## Requirements
 
 - Neovim >= 0.10
-- [snacks.nvim](https://github.com/folke/snacks.nvim) with `picker` enabled (for `picker()` only — the API works without it)
+- A picker, for `picker()` only — the API works without one:
+  [snacks.nvim](https://github.com/folke/snacks.nvim) (picker enabled),
+  [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) or
+  [fzf-lua](https://github.com/ibhagwan/fzf-lua)
+
+Whichever is installed is used, in that order. Pin one with
+`picker = { backend = "telescope" }`. The query language lives in the plugin,
+not in the picker, so `label:` and `scope:` behave identically on all three.
 
 ## Installation
 
@@ -92,7 +99,7 @@ exposes named pickers it knows about. `require("fsbookmark").picker()` always wo
 | `<leader>mr`  | Remove bookmark  |
 | `mb`          | Toggle (in an explorer buffer) |
 
-Also `:FSBookmark {add,remove,toggle,edit,list,prune,save,load} [path]`.
+Also `:FSBookmark {add,remove,toggle,edit,list,share,unshare,prune,save,load} [path]`.
 
 ### Picker
 
@@ -104,13 +111,17 @@ Also `:FSBookmark {add,remove,toggle,edit,list,prune,save,load} [path]`.
 | `<C-l>`  | Reload        |
 | `<C-y>`  | Copy path     |
 | `<C-o>`  | Reveal in explorer |
+| `<C-h>`  | Share / unshare (see below) |
+
+Telescope and fzf-lua support `<C-e>` (edit), `<C-x>` (delete) and `<C-y>`
+(copy path).
 
 Snacks already owns `<C-a><C-b><C-c><C-d><C-f><C-g><C-j><C-k><C-n><C-p><C-q>`
 `<C-r><C-s><C-t><C-u><C-v><C-w>` inside the picker, so the obvious `<C-d>` for
 delete and `<C-r>` for reload are not available — binding them makes Snacks log
 a duplicate-mapping warning and shadows its own scroll keys.
 
-`<C-d>` respects multi-selection.
+`<C-x>` respects multi-selection.
 
 The picker runs as a `live` Snacks source, so the prompt is handed to this
 plugin's own parser rather than to the built-in matcher — `label:core` typed
@@ -127,6 +138,7 @@ label:core         -- only bookmarks labelled "core"
 label:core label:ssd
 label:core scheduler
 scope:workspace    -- only this project's bookmarks
+scope:shared       -- only the repository's checked-in ones
 ```
 
 `label:` filters are ANDed with each other and with the free text. Multiple
@@ -162,6 +174,8 @@ fsbookmark.search(query)                                            --> bookmark
 fsbookmark.update(path, { description = ..., labels = ... })        --> bookmark|nil
 fsbookmark.labels()                                                 --> string[]
 fsbookmark.workspace()                                              --> root|nil, name|nil
+fsbookmark.share(path?)                                             --> bookmark|nil, err|nil
+fsbookmark.unshare(path?)                                           --> bookmark|nil, err|nil
 fsbookmark.is_broken(bookmark)                                      --> boolean
 fsbookmark.open(bookmark|path)
 fsbookmark.picker(opts?)
@@ -183,7 +197,7 @@ same path hits the same bookmark.
   type = "file" | "directory",
   description = "",
   labels = { "core", "runtime" },
-  scope = "global",   -- derived from which file it lives in; never stored
+  scope = "global",   -- "global" | "workspace" | "shared"; derived, never stored
   source = "manual",  -- reserved for git/lsp/recent providers
   metadata = {},      -- free-form; for other plugins and future fields
   created_at = 1721000000,
@@ -210,14 +224,16 @@ Defaults:
 require("fsbookmark").setup({
   dir = nil,         -- defaults to stdpath("data")/fsbookmark/bookmarks
   workspace = { enabled = true },
+  shared = { enabled = true, file = ".fsbookmark.json" },
   autosave = true,
   watch = true,      -- follow renames; flag missing paths as broken
-  icons = { bookmark = "★", broken = "⚠", global = "🌍", workspace = "📁" },
+  icons = { bookmark = "★", broken = "⚠", global = "🌍", workspace = "📁", shared = "👥" },
   picker = {
     keys = {
       edit = "<c-e>", delete = "<c-x>", reload = "<c-l>",
-      yank = "<c-y>", reveal = "<c-o>",
+      yank = "<c-y>", reveal = "<c-o>", share = "<c-h>",
     },
+    backend = "auto",  -- "snacks" | "telescope" | "fzf-lua"
   },
   explorer = { enabled = true, key = "mb" },  -- use "b" with the Snacks explorer, where `m` is move
   keys = { enabled = true, prefix = "<leader>m" },
@@ -252,6 +268,38 @@ files automatically.
 Turn the whole thing off with `workspace = { enabled = false }` and everything
 lives in `global.json`.
 
+## Shared bookmarks
+
+A repository can ship its own bookmarks — a map of where to start reading —
+in a checked-in `.fsbookmark.json` at the workspace root.
+
+```json
+{
+  "version": 1,
+  "bookmarks": [
+    { "path": "src/runtime.py", "description": "The scheduler. Start here.",
+      "labels": ["core", "entry"] }
+  ]
+}
+```
+
+It is read automatically and merged in, marked 👥 in the picker. Paths are
+stored **relative to the repository root**, so the file means the same thing on
+everyone's machine.
+
+**Nothing is ever written there implicitly.** Your own bookmarks stay in your
+personal files; a bookmark moves into the shared file only when you say so:
+
+```
+:FSBookmark share      -- promote the current bookmark
+:FSBookmark unshare    -- take it back out
+```
+
+or `<C-h>` in the picker, which toggles between the two. That way a personal
+note can never end up in a commit by accident.
+
+Turn it off with `shared = { enabled = false }`.
+
 ## Storage
 
 ```
@@ -259,6 +307,8 @@ stdpath("data")/fsbookmark/bookmarks/
     global.json
     workspace/
         reyn-3f8a1c9e2b04.json
+
+<workspace root>/.fsbookmark.json      -- checked into the repository
 ```
 
 ```json

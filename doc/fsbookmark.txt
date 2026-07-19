@@ -19,7 +19,8 @@ CONTENTS                                                 *fsbookmark-contents*
     8. Events ............................... |fsbookmark-events|
     9. Storage .............................. |fsbookmark-storage|
    10. Workspace ............................ |fsbookmark-workspace|
-   11. Explorer ............................. |fsbookmark-explorer|
+   11. Shared bookmarks ..................... |fsbookmark-shared|
+   12. Explorer ............................. |fsbookmark-explorer|
 
 ==============================================================================
 1. INTRODUCTION                                      *fsbookmark-introduction*
@@ -27,8 +28,9 @@ CONTENTS                                                 *fsbookmark-contents*
 fsbookmark.nvim bookmarks files and directories together with a description
 and free-form labels, and makes all of it fuzzy-searchable from one picker.
 
-Requires Neovim >= 0.10. The picker requires snacks.nvim with `picker`
-enabled; the API works without it.
+Requires Neovim >= 0.10. The picker needs one of snacks.nvim (with `picker`
+enabled), telescope.nvim or fzf-lua; whichever is installed is used, in that
+order. The API works without any of them.
 
 ==============================================================================
 2. SETUP                                                    *fsbookmark-setup*
@@ -40,13 +42,18 @@ Defaults: >lua
     {
       dir = nil,       -- stdpath("data")/fsbookmark/bookmarks
       workspace = { enabled = true },
+      shared = { enabled = true, file = ".fsbookmark.json" },
       autosave = true,
       watch = true,
-      icons = { bookmark = "★", broken = "⚠", directory = "", file = "" },
+      icons = {
+        bookmark = "★", broken = "⚠",
+        global = "🌍", workspace = "📁", shared = "👥",
+      },
       picker = {
+        backend = "auto",  -- "snacks" | "telescope" | "fzf-lua"
         keys = {
           edit = "<c-e>", delete = "<c-x>", reload = "<c-l>",
-          yank = "<c-y>", reveal = "<c-o>",
+          yank = "<c-y>", reveal = "<c-o>", share = "<c-h>",
         },
       },
       -- `m` is explorer_move in the snacks explorer; use "b" there.
@@ -68,6 +75,8 @@ The keymap prefix is `<leader>m` rather than `<leader>b` because LazyVim uses
     remove  [path]   Unregister a path.
     toggle  [path]   Add if missing, remove if present.
     edit    [path]   Prompt for description and labels.
+    share   [path]   Move a bookmark into the repository's shared file.
+    unshare [path]   Move it back out into your personal files.
     list             Open the picker. This is the default subcommand.
     prune            Remove every bookmark whose path no longer exists.
     save             Write to disk.
@@ -99,6 +108,10 @@ toggles the bookmark for the path under the cursor.
     <C-l>    Reload from disk
     <C-y>    Copy path
     <C-o>    Reveal in explorer
+    <C-h>    Share / unshare (see |fsbookmark-shared|)
+
+telescope and fzf-lua support <C-e>, <C-x> and <C-y>. Pin a backend with
+`picker = { backend = "telescope" }`.
 
 <C-d> and <C-r> are not used: snacks binds those (and most other <C-*> keys)
 inside the picker, and reusing one shadows its action.
@@ -127,6 +140,7 @@ Path, description and labels are fuzzy-matched. Multiple terms are ANDed. >
     label:core label:ssd
     label:core scheduler
     scope:workspace
+    scope:shared
 <
 The path is fuzzy-matched on its basename and substring-matched on the full
 path. `label:` filters are ANDed; multiple `scope:` filters are ORed.
@@ -152,6 +166,8 @@ fsbookmark.search({query})                               *fsbookmark.search()*
 fsbookmark.update({path}, {data})                        *fsbookmark.update()*
 fsbookmark.labels()                                      *fsbookmark.labels()*
 fsbookmark.workspace()                     see |fsbookmark-workspace|
+fsbookmark.share({path})                      see |fsbookmark-shared|
+fsbookmark.unshare({path})                    see |fsbookmark-shared|
 fsbookmark.is_broken({bookmark})                      *fsbookmark.is_broken()*
 fsbookmark.open({bookmark})                                *fsbookmark.open()*
 fsbookmark.edit({path}, {on_done})                         *fsbookmark.edit()*
@@ -166,7 +182,7 @@ A bookmark is: >lua
       type = "file"|"directory",
       description = "",
       labels = { "core" },
-      scope = "global",
+      scope = "global",  -- or "workspace" / "shared"
       source = "manual",
       metadata = {},
       created_at = 0,
@@ -248,7 +264,27 @@ Disable with: >lua
     require("fsbookmark").setup({ workspace = { enabled = false } })
 <
 ==============================================================================
-11. EXPLORER                                             *fsbookmark-explorer*
+11. SHARED BOOKMARKS                                       *fsbookmark-shared*
+
+A repository can ship its own bookmarks in a checked-in file at the workspace
+root (`.fsbookmark.json` by default). It is read automatically and merged in,
+and shown with the "shared" icon.
+
+Paths there are stored relative to the repository root, so the file means the
+same thing on every machine. The machine-specific root is not written.
+
+Nothing is written to it implicitly. A bookmark moves in only via: >
+    :FSBookmark share
+    :FSBookmark unshare
+<
+or <C-h> in the picker, which toggles between the two. A personal note can
+therefore never end up in a commit by accident.
+
+Disable with: >lua
+    require("fsbookmark").setup({ shared = { enabled = false } })
+<
+==============================================================================
+12. EXPLORER                                             *fsbookmark-explorer*
 
 >lua
     require("fsbookmark.explorer").toggle()

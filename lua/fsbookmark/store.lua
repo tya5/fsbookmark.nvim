@@ -12,7 +12,7 @@ local util = require("fsbookmark.util")
 ---@field metadata table free-form extension point for other plugins
 ---@field created_at integer
 ---@field updated_at integer
----@field scope "global"|"workspace" derived from the file it lives in; not stored
+---@field scope "global"|"workspace"|"shared" derived from the file it lives in; not stored
 
 --- Persistence. This is the only module that knows a workspace exists — a
 --- Bookmark does not carry its own location, and the public API never names one.
@@ -27,10 +27,14 @@ M.SCHEMA_VERSION = 1
 ---@field root string|nil
 ---@field name string|nil
 
----@type table<"global"|"workspace", FSBookmarkCollection>
+--- Ordered least- to most-specific: later scopes win on a duplicate path.
+M.SCOPES = { "global", "workspace", "shared" }
+
+---@type table<"global"|"workspace"|"shared", FSBookmarkCollection>
 M.collections = {
   global = { items = {}, loaded = false, dirty = false },
   workspace = { items = {}, loaded = false, dirty = false },
+  shared = { items = {}, loaded = false, dirty = false },
 }
 
 --- Merged view: global first, then the current workspace.
@@ -43,13 +47,48 @@ M.by_path = {}
 --- Fields that are derived rather than persisted.
 local DERIVED = { "scope" }
 
+--- Reading order for the shared file: what a human wants to see first.
+local FIELD_ORDER = {
+  "version",
+  "bookmarks",
+  "path",
+  "type",
+  "description",
+  "labels",
+}
+
 ---@param bookmark Bookmark
+---@param base string|nil root to make the path relative to
 ---@return table
-local function serialize(bookmark)
+local function serialize(bookmark, base)
   local out = vim.deepcopy(bookmark)
   for _, field in ipairs(DERIVED) do
     out[field] = nil
   end
+
+  if not base then
+    return out
+  end
+
+  -- A checked-in file is read on other machines, where an absolute path is
+  -- meaningless. Store it relative to the repository root.
+  if root.contains(bookmark.path, base) then
+    out.path = bookmark.path == base and "." or bookmark.path:sub(#base + 2)
+  end
+
+  -- Ids and timestamps are per-machine bookkeeping: keeping them would make
+  -- every save a diff, and they are regenerated on read anyway.
+  out.id, out.created_at, out.updated_at = nil, nil, nil
+  if out.source == "manual" then
+    out.source = nil
+  end
+  if vim.tbl_isempty(out.metadata or {}) then
+    out.metadata = nil
+  end
+  if vim.tbl_isempty(out.labels or {}) then
+    out.labels = nil
+  end
+
   return out
 end
 
@@ -57,14 +96,22 @@ end
 ---@param raw table
 ---@param scope "global"|"workspace"
 ---@return Bookmark|nil
-local function sanitize(raw, scope)
+local function sanitize(raw, scope, base)
   if type(raw) ~= "table" or type(raw.path) ~= "string" or raw.path == "" then
     return nil
   end
+
+  local path = raw.path
+  -- Relative paths only occur in the shared file; resolve them against the
+  -- repository root they were written relative to.
+  if base and not vim.startswith(path, "/") and not path:match("^~") then
+    path = vim.fs.joinpath(base, path)
+  end
+
   local now = os.time()
   return {
     id = type(raw.id) == "string" and raw.id or util.uuid(),
-    path = util.normalize(raw.path),
+    path = util.normalize(path),
     type = raw.type == "directory" and "directory" or "file",
     description = type(raw.description) == "string" and raw.description or "",
     labels = vim.islist(raw.labels) and raw.labels or {},
@@ -81,7 +128,7 @@ end
 local function merge()
   M.items = {}
   M.by_path = {}
-  for _, scope in ipairs({ "global", "workspace" }) do
+  for _, scope in ipairs(M.SCOPES) do
     for _, bookmark in ipairs(M.collections[scope].items) do
       if M.by_path[bookmark.path] then
         -- Replace the global entry in place so ordering stays stable.
@@ -102,15 +149,24 @@ end
 ---@param scope "global"|"workspace"
 ---@return string|nil
 function M.file(scope)
-  local dir = config.dir()
   if scope == "global" then
-    return vim.fs.joinpath(dir, "global.json")
+    return vim.fs.joinpath(config.dir(), "global.json")
   end
-  local collection = M.collections.workspace
-  if not collection.root then
+
+  local workspace_root = M.collections.workspace.root
+  if not workspace_root then
     return nil
   end
-  return vim.fs.joinpath(dir, "workspace", root.id(collection.root) .. ".json")
+
+  if scope == "shared" then
+    if not config.options.shared.enabled then
+      return nil
+    end
+    -- Lives in the repository, not in stdpath("data").
+    return vim.fs.joinpath(workspace_root, config.options.shared.file)
+  end
+
+  return vim.fs.joinpath(config.dir(), "workspace", root.id(workspace_root) .. ".json")
 end
 
 --- Move a pre-workspace `bookmarks.json` into the new layout, once.
@@ -155,9 +211,10 @@ local function read(scope)
 
   -- Accept both `{version, bookmarks}` and a bare array.
   local raw_items = vim.islist(decoded) and decoded or decoded.bookmarks
+  local base = scope == "shared" and collection.root or nil
   local seen = {}
   for _, raw in ipairs(raw_items or {}) do
-    local bookmark = sanitize(raw, scope)
+    local bookmark = sanitize(raw, scope, base)
     if bookmark and not seen[bookmark.path] then
       seen[bookmark.path] = true
       table.insert(collection.items, bookmark)
@@ -179,14 +236,22 @@ local function sync_workspace()
 
   collection.root = current
   collection.name = current and root.name(current) or nil
+
+  local shared = M.collections.shared
+  shared.root = current
+  shared.name = collection.name
+
   if not current then
-    collection.items = {}
-    collection.loaded = true
-    collection.dirty = false
+    for _, scope in ipairs({ "workspace", "shared" }) do
+      M.collections[scope].items = {}
+      M.collections[scope].loaded = true
+      M.collections[scope].dirty = false
+    end
     return true
   end
 
   read("workspace")
+  read("shared")
   return true
 end
 
@@ -196,6 +261,7 @@ function M.load()
   migrate_legacy()
   local ok = read("global")
   M.collections.workspace.loaded = false
+  M.collections.shared.loaded = false
   sync_workspace()
   merge()
   return ok
@@ -222,16 +288,31 @@ local function write(scope)
     return true
   end
 
+  -- The shared file is committed, so it carries neither absolute paths nor the
+  -- machine-specific root that the personal workspace file records.
+  local base = scope == "shared" and collection.root or nil
   local payload = {
     version = M.SCHEMA_VERSION,
-    bookmarks = vim.tbl_map(serialize, collection.items),
+    bookmarks = vim.tbl_map(function(bookmark)
+      return serialize(bookmark, base)
+    end, collection.items),
   }
   if scope == "workspace" then
     payload.root = collection.root
     payload.name = collection.name
   end
 
-  local ok, encoded = pcall(vim.json.encode, payload)
+  -- The shared file is reviewed in pull requests, so it is written indented
+  -- and with a stable key order; the private files stay compact.
+  local ok, encoded
+  if scope == "shared" then
+    ok, encoded = pcall(util.encode_pretty, payload, FIELD_ORDER)
+    if ok then
+      encoded = encoded .. "\n"
+    end
+  else
+    ok, encoded = pcall(vim.json.encode, payload)
+  end
   if not ok then
     util.notify("failed to encode bookmarks: " .. tostring(encoded), vim.log.levels.ERROR)
     return false
@@ -261,7 +342,7 @@ end
 ---@return boolean ok
 function M.save()
   local ok = true
-  for _, scope in ipairs({ "global", "workspace" }) do
+  for _, scope in ipairs(M.SCOPES) do
     if M.collections[scope].dirty then
       ok = write(scope) and ok
     end
@@ -271,7 +352,12 @@ end
 
 ---@return boolean
 function M.dirty()
-  return M.collections.global.dirty or M.collections.workspace.dirty
+  for _, scope in ipairs(M.SCOPES) do
+    if M.collections[scope].dirty then
+      return true
+    end
+  end
+  return false
 end
 
 --- Mark a collection as changed, persisting when autosave is on.
@@ -339,6 +425,46 @@ function M.delete(path)
 
   merge()
   return bookmark, scope
+end
+
+--- Move a bookmark to another collection, keeping its identity.
+---@param path string
+---@param scope "global"|"workspace"|"shared"
+---@return Bookmark|nil bookmark, string|nil error
+function M.move(path, scope)
+  M.ensure()
+  path = util.normalize(path)
+  local bookmark = M.by_path[path]
+  if not bookmark then
+    return nil, "not bookmarked: " .. util.display_path(path)
+  end
+
+  local from = bookmark.scope
+  if from == scope then
+    return bookmark, nil
+  end
+  if not M.file(scope) then
+    return nil, ("no %s file available here"):format(scope)
+  end
+  -- A checked-in file can only describe paths inside the repository.
+  if scope == "shared" and not root.contains(path, M.collections.shared.root or "") then
+    return nil, "outside the workspace: " .. util.display_path(path)
+  end
+
+  for i, item in ipairs(M.collections[from].items) do
+    if item.path == path then
+      table.remove(M.collections[from].items, i)
+      break
+    end
+  end
+  bookmark.scope = scope
+  bookmark.updated_at = os.time()
+  table.insert(M.collections[scope].items, bookmark)
+
+  M.collections[from].dirty = true
+  M.collections[scope].dirty = true
+  merge()
+  return bookmark, nil
 end
 
 --- Re-key a bookmark after its file moved, relocating it if the move crossed

@@ -444,6 +444,163 @@ describe("workspace", function()
   end)
 end)
 
+describe("shared bookmarks", function()
+  local ws_root, inside, outside
+
+  local function read_shared()
+    local path = store.file("shared")
+    if not path or vim.fn.filereadable(path) == 0 then
+      return nil
+    end
+    return vim.json.decode(table.concat(vim.fn.readfile(path), "\n"))
+  end
+
+  before_each(function()
+    reset()
+    ws_root = tmpdir .. "/proj"
+    vim.fn.mkdir(ws_root .. "/.git", "p")
+    vim.fn.mkdir(ws_root .. "/src", "p")
+    inside = ws_root .. "/src/runtime.py"
+    outside = tmpdir .. "/elsewhere.lua"
+    vim.fn.writefile({ "" }, inside)
+    vim.fn.writefile({ "" }, outside)
+
+    require("fsbookmark.root").clear_cache()
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks",
+      workspace = { enabled = true },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+    })
+    vim.cmd.edit(inside)
+    fsbookmark.load()
+  end)
+
+  after_each(function()
+    vim.cmd("silent! %bwipeout!")
+    require("fsbookmark.root").clear_cache()
+  end)
+
+  it("never writes to the repository without being asked", function()
+    fsbookmark.add(inside)
+    fsbookmark.save()
+    assert.is_nil(read_shared())
+    assert.equals("workspace", fsbookmark.get(inside).scope)
+  end)
+
+  it("promotes a bookmark on share()", function()
+    fsbookmark.add(inside, { description = "Scheduler", labels = { "core" } })
+    local bookmark = fsbookmark.share(inside)
+
+    assert.equals("shared", bookmark.scope)
+    local shared = read_shared()
+    assert.equals(1, #shared.bookmarks)
+    assert.equals("Scheduler", shared.bookmarks[1].description)
+  end)
+
+  it("stores paths relative to the repository root", function()
+    fsbookmark.add(inside)
+    fsbookmark.share(inside)
+
+    -- An absolute path would be meaningless on a teammate's machine.
+    assert.equals("src/runtime.py", read_shared().bookmarks[1].path)
+  end)
+
+  it("writes a reviewable file: indented, ordered, no per-machine noise", function()
+    fsbookmark.add(inside, { description = "Scheduler", labels = { "core" } })
+    fsbookmark.share(inside)
+
+    local text = table.concat(vim.fn.readfile(store.file("shared")), "\n")
+    -- Indented, so a pull request diff is readable line by line.
+    assert.is_truthy(text:find('\n  "version": 1', 1, true))
+    -- Path before description before labels, every time.
+    assert.is_true(text:find('"path"', 1, true) < text:find('"description"', 1, true))
+
+    local entry = read_shared().bookmarks[1]
+    -- Ids and timestamps would churn on every save without telling anyone
+    -- anything; they are regenerated on read.
+    assert.is_nil(entry.id)
+    assert.is_nil(entry.created_at)
+    assert.is_nil(entry.updated_at)
+    assert.is_nil(entry.source)
+
+    -- Still usable after a round trip.
+    fsbookmark.load()
+    assert.equals("Scheduler", fsbookmark.get(inside).description)
+    assert.is_string(fsbookmark.get(inside).id)
+  end)
+
+  it("omits the machine-specific root from the shared file", function()
+    fsbookmark.add(inside)
+    fsbookmark.share(inside)
+    assert.is_nil(read_shared().root)
+  end)
+
+  it("resolves relative paths on read", function()
+    vim.fn.writefile({
+      vim.json.encode({
+        version = 1,
+        bookmarks = { { path = "src/runtime.py", description = "From the repo", labels = { "core" } } },
+      }),
+    }, ws_root .. "/.fsbookmark.json")
+
+    fsbookmark.load()
+    local bookmark = fsbookmark.get(inside)
+    assert.is_not_nil(bookmark)
+    assert.equals("From the repo", bookmark.description)
+    assert.equals("shared", bookmark.scope)
+  end)
+
+  it("moves a bookmark out again on unshare()", function()
+    fsbookmark.add(inside)
+    fsbookmark.share(inside)
+    local bookmark = fsbookmark.unshare(inside)
+
+    assert.equals("workspace", bookmark.scope)
+    assert.equals(0, #read_shared().bookmarks)
+  end)
+
+  it("refuses to share a path outside the repository", function()
+    fsbookmark.add(outside)
+    local bookmark, err = fsbookmark.share(outside)
+    assert.is_nil(bookmark)
+    assert.is_truthy(err:match("outside the workspace"))
+  end)
+
+  it("filters by scope:shared", function()
+    fsbookmark.add(inside)
+    fsbookmark.add(outside)
+    fsbookmark.share(inside)
+
+    assert.equals(1, #fsbookmark.search("scope:shared"))
+    assert.equals(inside, fsbookmark.search("scope:shared")[1].path)
+  end)
+
+  it("lets a shared entry win over a personal one for the same path", function()
+    fsbookmark.add(inside, { description = "mine" })
+    fsbookmark.share(inside)
+    assert.equals(1, #fsbookmark.list())
+    assert.equals("shared", fsbookmark.get(inside).scope)
+  end)
+
+  it("can be turned off", function()
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks",
+      workspace = { enabled = true },
+      shared = { enabled = false },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+    })
+    assert.is_nil(store.file("shared"))
+    fsbookmark.add(inside)
+    local bookmark, err = fsbookmark.share(inside)
+    assert.is_nil(bookmark)
+    assert.is_truthy(err)
+  end)
+end)
+
 describe("label completion", function()
   local complete = function(line)
     return require("fsbookmark.edit").complete_labels("", line)
@@ -468,6 +625,61 @@ describe("label completion", function()
     -- "core" is filtered out even though it matches the "co" token.
     assert.same({ "core,runtime,config" }, complete("core,runtime,co"))
     assert.same({}, complete("core,config,runtime,"))
+  end)
+end)
+
+describe("picker backends", function()
+  local entry = require("fsbookmark.entry")
+  local picker = require("fsbookmark.picker")
+
+  before_each(function()
+    reset()
+    fsbookmark.add(file_a, { description = "Runtime scheduler", labels = { "core", "hot" } })
+    fsbookmark.add(file_b, { description = "Design notes", labels = { "design" } })
+  end)
+
+  it("builds one display line per bookmark", function()
+    local items = entry.list("")
+    assert.equals(2, #items)
+    for _, item in ipairs(items) do
+      assert.is_string(item.line)
+      assert.is_not_nil(item.bookmark)
+    end
+  end)
+
+  it("puts name, description, labels and path on the line", function()
+    local line = entry.list("label:core")[1].line
+    assert.is_truthy(line:find("runtime.py", 1, true))
+    assert.is_truthy(line:find("Runtime scheduler", 1, true))
+    assert.is_truthy(line:find("core hot", 1, true))
+  end)
+
+  it("routes the query through search, same as the Snacks source", function()
+    assert.equals(1, #entry.list("label:design"))
+    assert.equals(0, #entry.list("label:nope"))
+  end)
+
+  it("marks broken bookmarks in the line", function()
+    vim.fn.delete(file_a)
+    local line
+    for _, item in ipairs(entry.list("")) do
+      if item.bookmark.path == file_a then
+        line = item.line
+      end
+    end
+    assert.is_truthy(line:find(require("fsbookmark.config").options.icons.broken, 1, true))
+  end)
+
+  it("honours an explicitly configured backend", function()
+    fsbookmark.setup({
+      dir = tmpdir .. "/bookmarks",
+      workspace = { enabled = false },
+      watch = false,
+      explorer = { enabled = false },
+      keys = { enabled = false },
+      picker = { backend = "telescope" },
+    })
+    assert.equals("telescope", picker.backend())
   end)
 end)
 

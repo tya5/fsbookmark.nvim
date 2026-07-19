@@ -24,6 +24,24 @@ local subcommands = {
   list = function()
     require("fsbookmark").picker()
   end,
+  share = function(args)
+    local bookmark, err = require("fsbookmark").share(args[1])
+    local util = require("fsbookmark.util")
+    if bookmark then
+      util.notify("shared " .. util.display_path(bookmark.path))
+    else
+      util.notify(err or "could not share", vim.log.levels.WARN)
+    end
+  end,
+  unshare = function(args)
+    local bookmark, err = require("fsbookmark").unshare(args[1])
+    local util = require("fsbookmark.util")
+    if bookmark then
+      util.notify("unshared " .. util.display_path(bookmark.path))
+    else
+      util.notify(err or "could not unshare", vim.log.levels.WARN)
+    end
+  end,
   prune = function()
     local removed = require("fsbookmark.watch").prune()
     require("fsbookmark.util").notify(("removed %d broken bookmark(s)"):format(removed))

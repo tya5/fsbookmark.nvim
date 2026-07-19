@@ -13,6 +13,15 @@ local defaults = {
     enabled = true,
   },
 
+  shared = {
+    -- Read a checked-in bookmark file from the workspace root, so a repository
+    -- can ship its own map of "where to start reading".
+    enabled = true,
+    -- Relative to the workspace root. Nothing is ever written here implicitly:
+    -- bookmarks move in only via `:FSBookmark share`.
+    file = ".fsbookmark.json",
+  },
+
   -- Save to disk automatically after every mutation.
   autosave = true,
 
@@ -26,9 +35,15 @@ local defaults = {
     file = "",
     global = "🌍",
     workspace = "📁",
+    shared = "👥",
   },
 
   picker = {
+    -- Which picker to open: "auto" takes the first installed of snacks,
+    -- telescope, fzf-lua. Set it explicitly to pin one.
+    ---@type "auto"|"snacks"|"telescope"|"fzf-lua"
+    backend = "auto",
+
     -- Snacks picker keymaps. Set a value to false to disable it.
     --
     -- Snacks already binds <c-a><c-b><c-c><c-d><c-f><c-g><c-j><c-k><c-n>
@@ -42,6 +57,7 @@ local defaults = {
       reload = "<c-l>",
       yank = "<c-y>",
       reveal = "<c-o>",
+      share = "<c-h>",
     },
   },
 
