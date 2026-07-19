@@ -1,4 +1,3 @@
-local config = require("fsbookmark.config")
 local fsbookmark = require("fsbookmark")
 local search = require("fsbookmark.search")
 local store = require("fsbookmark.store")
