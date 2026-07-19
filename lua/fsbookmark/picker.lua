@@ -46,14 +46,36 @@ local function finder(_opts, ctx)
   return items
 end
 
+--- Usable width of the picker's list window, or a sane guess.
+---@param picker table|nil
+---@return integer
+local function list_width(picker)
+  local win = picker and picker.list and picker.list.win
+  if win and win:valid() then
+    local ok, width = pcall(vim.api.nvim_win_get_width, win.win)
+    if ok and width > 0 then
+      return width
+    end
+  end
+  return 60
+end
+
 ---@param item table
+---@param picker table|nil
 ---@return table[]
-local function format(item)
+local function format(item, picker)
   local Snacks = require("snacks")
   local align = Snacks.picker.util.align
   local icons = config.options.icons
   local bookmark = item.bookmark
   local out = {}
+
+  -- Fixed column widths overflow a narrow list and push the path off the far
+  -- right, where it is invisible. Scale them instead, and never let the two
+  -- columns claim more than half the row.
+  local width = list_width(picker)
+  local name_width = math.max(12, math.min(28, math.floor(width * 0.25)))
+  local desc_width = math.max(0, math.min(34, math.floor(width * 0.28)))
 
   -- The scope column only appears when there is a workspace to contrast with;
   -- without one every row would carry the same marker.
@@ -68,18 +90,28 @@ local function format(item)
   local name = vim.fn.fnamemodify(bookmark.path, ":t")
   local name_hl = item.broken and "SnacksPickerPathHidden"
     or (bookmark.type == "directory" and "SnacksPickerDirectory" or "SnacksPickerFile")
-  table.insert(out, { align(name, 28, { truncate = true }), name_hl })
+  table.insert(out, { align(name, name_width, { truncate = true }), name_hl })
   table.insert(out, { " " })
 
-  table.insert(out, { align(bookmark.description or "", 34, { truncate = true }), "SnacksPickerDesc" })
-  table.insert(out, { " " })
+  if desc_width > 0 then
+    table.insert(out, { align(bookmark.description or "", desc_width, { truncate = true }), "SnacksPickerDesc" })
+    table.insert(out, { " " })
+  end
 
   for _, label in ipairs(bookmark.labels or {}) do
     table.insert(out, { label, "SnacksPickerLabel" })
     table.insert(out, { " " })
   end
 
-  table.insert(out, { util.display_path(bookmark.path), "SnacksPickerPathHidden" })
+  local path = util.display_path(bookmark.path)
+  local used = 0
+  for _, chunk in ipairs(out) do
+    used = used + vim.fn.strdisplaywidth(chunk[1])
+  end
+  local room = width - used - 1
+  if room > 4 then
+    table.insert(out, { Snacks.picker.util.truncpath(path, room), "SnacksPickerPathHidden" })
+  end
   return out
 end
 
@@ -156,7 +188,14 @@ function M.source(opts)
   for name, action in pairs(map) do
     local key = keys[name]
     if key then
-      input_keys[key] = { action, mode = { "n", "i" } }
+      -- Normalise to Snacks' own spelling (`<c-l>` -> `<C-L>`). Snacks does
+      -- this to the registered source at setup, so emitting the raw form here
+      -- would land a second entry for the same key and trigger its
+      -- duplicate-mapping warning every time the picker opens.
+      local ok, normalised = pcall(function()
+        return require("snacks").util.normkey(key)
+      end)
+      input_keys[ok and normalised or key] = { action, mode = { "n", "i" } }
     end
   end
 
